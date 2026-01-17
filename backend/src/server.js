@@ -1,27 +1,24 @@
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const cookieParser = require('cookie-parser');
-const rateLimit = require('express-rate-limit');
-const dotenv = require('dotenv');
-const { PrismaClient } = require('@prisma/client');
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
+import dotenv from 'dotenv';
+import { initializeDatabase } from './config/database.js';
 
 // Load environment variables
 dotenv.config();
 
-// Initialize Prisma Client
-const prisma = new PrismaClient();
-
 // Import middleware
-const authMiddleware = require('./middleware/auth');
+import { auth } from './middleware/auth.js';
 
 // Import routes
-const authRoutes = require('./routes/auth');
-const attendanceRoutes = require('./routes/attendance');
-const attritionRoutes = require('./routes/attrition');
+import authRoutes from './routes/authRoutes.js';
+import attendanceRoutes from './routes/attendance.js';
+import attritionRoutes from './routes/attrition.js';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 
 // ============================================
 // MIDDLEWARE
@@ -57,7 +54,8 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    service: 'abrohr-platform-api'
+    service: 'abrohr-platform-api',
+    database: 'connected'
   });
 });
 
@@ -65,8 +63,8 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // Protected routes (require authentication)
-app.use('/api/attendance', authMiddleware, attendanceRoutes);
-app.use('/api/attrition', authMiddleware, attritionRoutes);
+app.use('/api/attendance', auth, attendanceRoutes);
+app.use('/api/attrition', auth, attritionRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -86,17 +84,30 @@ app.use((err, req, res, next) => {
 // START SERVER
 // ============================================
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+async function startServer() {
+  try {
+    // Initialize database
+    await initializeDatabase();
+    console.log('✅ Database initialized successfully');
+
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
+process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down gracefully...');
-  await prisma.$disconnect();
   process.exit(0);
 });
 
-module.exports = app;
+export default app;

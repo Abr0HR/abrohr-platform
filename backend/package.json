@@ -1,6 +1,7 @@
 {
   "name": "abrohr-backend",
   "version": "1.0.0",
+    "type": "module",
   "description": "Backend API for AbrO HR Platform - Attrition Prediction & Psychological Assessment",
   "main": "src/server.js",
   "scripts": {

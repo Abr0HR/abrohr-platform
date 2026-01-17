@@ -1,16 +1,24 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
+const dotenv = require('dotenv');
+const { PrismaClient } = require('@prisma/client');
 
 // Load environment variables
 dotenv.config();
 
 // Initialize Prisma Client
-export const prisma = new PrismaClient();
+const prisma = new PrismaClient();
+
+// Import middleware
+const authMiddleware = require('./middleware/auth');
+
+// Import routes
+const authRoutes = require('./routes/auth');
+const attendanceRoutes = require('./routes/attendance');
+const attritionRoutes = require('./routes/attrition');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -36,61 +44,36 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Body parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
-
-// Request logging (simple)
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
 
 // ============================================
 // ROUTES
 // ============================================
 
-// Health check
+// Health check endpoint (public)
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Root
-app.get('/', (req, res) => {
-  res.json({
-    message: 'AbrO HR Platform API',
-    version: '1.0.0',
-    endpoints: {
-      health: '/health',
-      auth: '/api/auth/*',
-      attendance: '/api/attendance/*',
-      reports: '/api/reports/*',
-      psych: '/api/psych/*'
-    }
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    service: 'abrohr-platform-api'
   });
 });
 
-// TODO: Import and mount route modules
-// import authRoutes from './routes/auth.js';
-// import attendanceRoutes from './routes/attendance.js';
-// import reportsRoutes from './routes/reports.js';
-// import psychRoutes from './routes/psych.js';
-// 
-// app.use('/api/auth', authRoutes);
-// app.use('/api/attendance', attendanceRoutes);
-// app.use('/api/reports', reportsRoutes);
-// app.use('/api/psych', psychRoutes);
+// Public routes
+app.use('/api/auth', authRoutes);
 
-// ============================================
-// ERROR HANDLING
-// ============================================
+// Protected routes (require authentication)
+app.use('/api/attendance', authMiddleware, attendanceRoutes);
+app.use('/api/attrition', authMiddleware, attritionRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+  res.status(404).json({ error: 'Route not found' });
 });
 
-// Global error handler
+// Error handler
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(err.status || 500).json({
@@ -104,20 +87,16 @@ app.use((err, req, res, next) => {
 // ============================================
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 AbrO HR API running on http://localhost:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`✅ Database connected via Prisma\n`);
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down gracefully...');
   await prisma.$disconnect();
   process.exit(0);
 });
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
+module.exports = app;

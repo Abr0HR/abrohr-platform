@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Backend API for AbrO HR Platform - Attrition Prediction & Psychological Assessment",
   "main": "src/server.js",
-  "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",

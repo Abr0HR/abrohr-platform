@@ -1,0 +1,207 @@
+// Prisma Schema for AbrO HR Platform
+// Database: PostgreSQL (Supabase/Neon free tier compatible)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ORGANIZATIONS & USERS
+// ============================================
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  domain    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  
+  users              User[]
+  employees          Employee[]
+  uploadedFiles      UploadedFile[]
+  attendanceRecords  AttendanceRecord[]
+  attritionScores    AttritionScore[]
+  reports            Report[]
+  psychCampaigns     PsychCampaign[]
+  psychResponses     PsychResponse[]
+}
+
+model User {
+  id             String   @id @default(uuid())
+  organizationId String
+  email          String   @unique
+  passwordHash   String
+  role           String   // 'ADMIN' | 'MANAGER'
+  createdAt      DateTime @default(now())
+  lastLoginAt    DateTime?
+  
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedFiles UploadedFile[]
+  reports       Report[]
+  psychCampaigns PsychCampaign[]
+  
+  @@index([organizationId])
+}
+
+// ============================================
+// EMPLOYEES & ATTENDANCE
+// ============================================
+
+model Employee {
+  id             String   @id @default(uuid())
+  organizationId String
+  employeeCode   String
+  department     String
+  designation    String?
+  joinDate       DateTime?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  attendanceRecords AttendanceRecord[]
+  attritionScores   AttritionScore[]
+  psychResponses    PsychResponse[]
+  
+  @@unique([organizationId, employeeCode])
+  @@index([organizationId])
+  @@index([department])
+}
+
+model UploadedFile {
+  id             String   @id @default(uuid())
+  organizationId String
+  originalName   String
+  storedPath     String
+  uploadedById   String
+  uploadedAt     DateTime @default(now())
+  processedAt    DateTime?
+  
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy        User               @relation(fields: [uploadedById], references: [id])
+  attendanceRecords AttendanceRecord[]
+  
+  @@index([organizationId])
+}
+
+model AttendanceRecord {
+  id             String   @id @default(uuid())
+  organizationId String
+  employeeId     String
+  date           DateTime @db.Date
+  status         String   // 'PRESENT' | 'PLANNED' | 'UNPLANNED' | 'ABSENT'
+  sourceFileId   String
+  createdAt      DateTime @default(now())
+  
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  sourceFile   UploadedFile @relation(fields: [sourceFileId], references: [id])
+  
+  @@unique([employeeId, date])
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([date])
+}
+
+// ============================================
+// ATTRITION PREDICTION
+// ============================================
+
+model AttritionScore {
+  id             String   @id @default(uuid())
+  organizationId String
+  employeeId     String
+  periodStart    DateTime @db.Date
+  periodEnd      DateTime @db.Date
+  riskScore      Float
+  riskCategory   String   // 'LOW' | 'MODERATE' | 'HIGH'
+  metrics        Json?    // Stores detailed calculation breakdown
+  computedAt     DateTime @default(now())
+  
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([riskCategory])
+}
+
+// ============================================
+// PSYCHOLOGICAL ASSESSMENTS
+// ============================================
+
+model PsychTest {
+  id              String @id @default(uuid())
+  key             String @unique  // 'ENGAGEMENT', 'BURNOUT', 'STRESS', 'SATISFACTION'
+  name            String
+  description     String?
+  items           Json   // Array of questions
+  scoringRules    Json   // Scoring logic
+  categoryThresholds Json // Low/Moderate/High cutoffs
+}
+
+model PsychCampaign {
+  id               String   @id @default(uuid())
+  organizationId   String
+  name             String
+  mode             String   // 'ANONYMOUS' | 'TAGGED'
+  testsIncluded    String[] // Array of test keys
+  departmentFilter String[]
+  createdById      String
+  createdAt        DateTime @default(now())
+  isActive         Boolean  @default(true)
+  
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  responses      PsychResponse[]
+  
+  @@index([organizationId])
+}
+
+model PsychResponse {
+  id             String   @id @default(uuid())
+  campaignId     String
+  organizationId String
+  employeeId     String?  // NULL if anonymous
+  anonymousCode  String?  // Random ID for anonymous mode
+  department     String?
+  testKey        String
+  rawAnswers     Json
+  scores         Json     // { dimension: score }
+  createdAt      DateTime @default(now())
+  
+  campaign     PsychCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee?     @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  
+  @@index([campaignId])
+  @@index([organizationId])
+  @@index([employeeId])
+}
+
+// ============================================
+// REPORTS
+// ============================================
+
+model Report {
+  id             String   @id @default(uuid())
+  organizationId String
+  type           String   // 'ATTRITION' | 'LWP' | 'BENCH' | 'COMPLIANCE' | 'PSYCH_SUMMARY'
+  periodStart    DateTime? @db.Date
+  periodEnd      DateTime? @db.Date
+  generatedById  String
+  generatedAt    DateTime @default(now())
+  excelPath      String?
+  pdfPath        String?
+  metadata       Json?    // Additional report parameters
+  
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generatedBy  User         @relation(fields: [generatedById], references: [id])
+  
+  @@index([organizationId])
+  @@index([type])
+}
